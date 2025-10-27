@@ -1,10 +1,11 @@
 import json
 import os
+from pathlib import Path
 
 import joblib
 import pandas as pd
+import requests
 import streamlit as st
-import altair as alt
 from langchain.agents import create_agent
 from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.tools import tool
@@ -18,9 +19,35 @@ if not openai_key or openai_key == "your_openai_api_key_here":
 
 os.environ["OPENAI_API_KEY"] = openai_key
 
+# Model download configuration
+MODEL_URL = (
+    "https://github.com/olaysco/stroke-prediction-system/releases/download/"
+    "v1.0.0-beta/rf_stroke_combined_model.joblib"
+)
+MODEL_PATH = Path("rf_stroke_combined_model.joblib")
+
+
+def _ensure_model_file() -> Path:
+    try:
+        with requests.get(MODEL_URL, stream=True, timeout=60) as response:
+            response.raise_for_status()
+            with MODEL_PATH.open("wb") as model_file:
+                for chunk in response.iter_content(8192):
+                    if chunk:
+                        model_file.write(chunk)
+    except requests.RequestException as exc:
+        st.error(
+            "Unable to download the stroke model. Please check your internet "
+            f"connection or download it manually from {MODEL_URL}.\nError: {exc}"
+        )
+        st.stop()
+
+    return MODEL_PATH
+
+
 # Load XGBoost stroke model
 try:
-    with open("rf_stroke_combined_model.joblib", "rb") as f:
+    with _ensure_model_file().open("rb") as f:
         stroke_model = joblib.load(f)
 except FileNotFoundError:
     st.error("Model file 'rf_stroke_combined_model.joblib' not found. Please check the path.")
@@ -36,7 +63,6 @@ NUMERIC_COLUMNS = [
 ]
 CAT_COLUMNS = ["gender", "smoking_status", "ever_married"]
 ALL_COLUMNS = NUMERIC_COLUMNS + CAT_COLUMNS
-REQUIRED_COLUMNS = set(ALL_COLUMNS)
 ALIASES = {
     "glucose_level": "avg_glucose_level",
     "evermarried": "ever_married",
@@ -62,7 +88,6 @@ def stroke_prediction_tool(features_str: str) -> str:
     """Predicts stroke risk from JSON features (age, hypertension, glucose_level, heart_disease, bmi). Returns a JSON payload with probability for downstream messaging."""
     try:
         features = json.loads(features_str)
-        print("Features received for prediction:", features_str)  # Debug statement
         feature_frame = _features_to_dataframe(features)
         probability = stroke_model.predict_proba(feature_frame)[0][1]
         return json.dumps({"probability": float(probability)})
