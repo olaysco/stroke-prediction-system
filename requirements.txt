@@ -1,0 +1,14 @@
+numpy
+pandas
+scikit-learn
+matplotlib
+seaborn
+xgboost
+joblib
+streamlit
+langchain
+langchain-openai
+openai
+notebook
+ipykernel
+altair
